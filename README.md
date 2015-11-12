@@ -80,8 +80,13 @@ Generate MaaS compatible image
 
 Generating an image for MaaS follows the same rules outlined above for OpenStack images. For this purpose there is a separate commandlet:
 
+Change this to something along the lines of: if you download this repo as a zipfile on windows, make sure you "Unblock-File repo.zip" before unarchiving. This will prevent errors about scripts not being signed.
+
+If you want to see available installation images, you may print the "$images" variable
 
 Example:
+
+    Import-Module .\WinImageBuilder.psm1
 
     # This is the content of your Windows ISO
     $wimFilePath = "D:\sources\install.wim"
@@ -90,6 +95,8 @@ Example:
     $images = Get-WimFileImagesInfo -WimFilePath $wimFilePath
 
     # Select the first one
+    # [0] - Core Installation
+    # [1] - GUI Installation
     $image = $images[0]
 
     New-MaaSImage -WimFilePath $wimFilePath -ImageName $image.ImageName`
