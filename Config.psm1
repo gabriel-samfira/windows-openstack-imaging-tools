@@ -48,6 +48,8 @@ function Get-AvailableConfigOptions {
           "Description" = "It will force the image generation when RunSysprep is False or the selected SwitchName
                            is not an external one. Use this parameter with caution because it can easily generate
                            unstable images."},
+        @{"Name" = "skip_wallpaper"; "DefaultValue" = $false; "AsBoolean" = $true;
+          "Description" = "It will skip setting the wallpaper and will set a solid color instead"},
         @{"Name" = "install_maas_hooks"; "DefaultValue" = $false; "AsBoolean" = $true;
           "Description" = "If set to true, MAAS Windows curtin hooks will be copied to the image root directory."},
          @{"Name" = "compression_format";

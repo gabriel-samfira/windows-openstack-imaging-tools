@@ -68,7 +68,8 @@ class PathShouldExistAttribute : System.Management.Automation.ValidateArgumentsA
 
 function Write-Log {
     Param($messageToOut)
-    Write-Host $messageToOut (Get-Date)
+    # Using Write-Output here is not acceptable.
+    Write-Host ("{0} - {1}" -f @((Get-Date), $messageToOut))
 }
 
 function Execute-Retry {
@@ -209,7 +210,7 @@ function Apply-Image {
         [parameter(Mandatory=$true)]
         [int]$imageIndex
     )
-    Write-Output ('Applying Windows image "{0}" in "{1}"' -f $wimFilePath, $winImagePath)
+    Write-Log ('Applying Windows image "{0}" in "{1}"' -f $wimFilePath, $winImagePath)
     #Expand-WindowsImage -ImagePath $wimFilePath -Index $imageIndex -ApplyPath $winImagePath
     # Use Dism in place of the PowerShell equivalent for better progress update
     # and for ease of interruption with CTRL+C
@@ -252,13 +253,13 @@ function Create-BCDBootConfig {
         }
 
         & $bcdeditPath /store ${systemDrive}\boot\BCD /set `{bootmgr`} device locate
-        if ($LASTEXITCODE) { Write-Warning "BCDEdit failed: bootmgr device locate" }
+        if ($LASTEXITCODE) { Write-Warning ("BCDEdit failed: bootmgr device locate. Exit code: {0}" -f $LASTEXITCODE) }
 
         & $bcdeditPath /store ${systemDrive}\boot\BCD /set `{default`} device locate
-        if ($LASTEXITCODE) { Write-Warning "BCDEdit failed: default device locate" }
+        if ($LASTEXITCODE) { Write-Warning ("BCDEdit failed: default device locatei. Exit code: {0}" -f $LASTEXITCODE) }
 
         & $bcdeditPath /store ${systemDrive}\boot\BCD /set `{default`} osdevice locate
-        if ($LASTEXITCODE) { Write-Warning "BCDEdit failed: default osdevice locate" }
+        if ($LASTEXITCODE) { Write-Warning ("BCDEdit failed: default osdevice locate. Exit code: {0}" -f $LASTEXITCODE) }
     }
     Write-Log "BCDBoot config has been created."
 }
@@ -360,10 +361,10 @@ function Convert-VirtualDisk {
     Write-Log "Convert Virtual Disk: $vhdPath..."
     $compressParam = ""
     if ($format -eq "qcow2" -and $CompressQcow2) {
-        Write-Host "Qcow2 compression has been enabled."
+        Write-Log "Qcow2 compression has been enabled."
         $compressParam = "-c"
     }
-    Write-Host "Converting virtual disk image from $vhdPath to $outPath..."
+    Write-Log "Converting virtual disk image from $vhdPath to $outPath..."
     Execute-Retry {
         & "$scriptPath\bin\qemu-img.exe" convert $compressParam -O $format.ToLower() $vhdPath $outPath
         if($LASTEXITCODE) { throw "qemu-img failed to convert the virtual disk" }
@@ -387,14 +388,14 @@ function Copy-CustomResources {
         if (!(Test-Path "$resourcesDir\CustomResources")) {
             $d = New-Item -Type Directory "$resourcesDir\CustomResources"
         }
-        Write-Host "Copying: $CustomResources $resourcesDir"
+        Write-Log "Copying: $CustomResources $resourcesDir"
         Copy-Item -Recurse "$CustomResources\*" "$resourcesDir\CustomResources"
     }
     if ($CustomScripts) {
         if (!(Test-Path "$resourcesDir\CustomScripts")) {
             $d = New-Item -Type Directory "$resourcesDir\CustomScripts"
         }
-        Write-Host "Copying: $CustomScripts $resourcesDir"
+        Write-Log "Copying: $CustomScripts $resourcesDir"
         Copy-Item -Recurse "$CustomScripts\*" "$resourcesDir\CustomScripts"
     }
     Write-Log "Custom Resources at: $ResourcesDir."
@@ -420,7 +421,7 @@ function Copy-UnattendResources {
     if (!(Test-Path "$resourcesDir")) {
         $d = New-Item -Type Directory $resourcesDir
     }
-    Write-Host "Copying: $localResourcesDir $resourcesDir"
+    Write-Log "Copying: $localResourcesDir $resourcesDir"
     Copy-Item -Recurse "$localResourcesDir\*" $resourcesDir
 
     if ($InstallMaaSHooks) {
@@ -434,9 +435,9 @@ function Copy-UnattendResources {
     }
 
     if ($VMwareToolsPath) {
-        Write-Host "Copying VMwareTools..."
+        Write-Log "Copying VMwareTools..."
         $dst = Join-Path $resourcesDir "\VMware-tools.exe"
-        Write-Host "VMware tools path is: $VMwareToolsPath"
+        Write-Log "VMware tools path is: $VMwareToolsPath"
         Copy-Item $VMwareToolsPath $dst
     }
     Write-Log "Resources have been copied."
@@ -483,11 +484,11 @@ function Download-CloudbaseInit {
         if (!(Test-Path $MsiPath)) {
             throw "Cloudbase-Init installer could not be copied. $MsiPath does not exist."
         }
-        Write-Host "Copying Cloudbase-Init..."
+        Write-Log "Copying Cloudbase-Init..."
         Copy-Item $MsiPath $CloudbaseInitMsiPath
         return
     }
-    Write-Host "Downloading Cloudbase-Init..."
+    Write-Log "Downloading Cloudbase-Init..."
     $msiBuildArchMap = @{
         "amd64" = "x64"
         "i386" = "x86"
@@ -529,7 +530,7 @@ function Add-DriversToImage {
         [Parameter(Mandatory=$true)]
         [string]$driversPath
     )
-    Write-Output ('Adding drivers from "{0}" to image "{1}"' -f $driversPath, $winImagePath)
+    Write-Log ('Adding drivers from "{0}" to image "{1}"' -f $driversPath, $winImagePath)
     & Dism.exe /image:${winImagePath} /Add-Driver /driver:${driversPath} /ForceUnsigned /recurse
     if ($LASTEXITCODE) {
         throw "Dism failed to add drivers from: $driversPath"
@@ -571,7 +572,7 @@ function Check-EnablePowerShellInImage {
     $v62 = New-Object System.Version 6, 2, 0, 0
     if ($image.ImageVersion.CompareTo($v62) -lt 0 `
             -and $image.ImageInstallationType -eq "Server Core") {
-        Write-Output "Enabling PowerShell in the Windows image"
+        Write-Log "Enabling PowerShell in the Windows image"
         $psFeatures = @("NetFx2-ServerCore",
                         "MicrosoftWindowsPowerShell",
                         "NetFx2-ServerCore-WOW64",
@@ -713,7 +714,7 @@ function Add-VirtIODriversFromISO {
             $devicePath = $v.GetVirtualDiskPhysicalPath()
             $driversBasePath = ((Get-DiskImage -DevicePath $devicePath `
                 | Get-Volume).DriveLetter) + ":"
-            Write-Host "Adding drivers from $driversBasePath"
+            Write-Log "Adding drivers from $driversBasePath"
             # We call Get-PSDrive to refresh the list of active drives.
             # Otherwise, "Test-Path $driversBasePath" will return $False
             # http://www.vistax64.com/powershell/2653-powershell-does-not-update-subst-mapped-drives.html
@@ -723,7 +724,7 @@ function Add-VirtIODriversFromISO {
             throw "The $isoPath is not a valid iso path."
         }
     } catch{
-        Write-Host $_
+        Write-Log $_
     } finally {
         if ($v) {
             $v.DetachVirtualDisk()
@@ -772,10 +773,10 @@ function Compress-Image {
             try {
                 if ($compresionFormat -eq "tar") {
                     $tmpName = '{0}.tar' -f @((Get-PathWithoutExtension($ImagePath)))
-                    Write-Host "Archiving $VirtualDiskPath to tarfile $tmpName"
+                    Write-Log "Archiving $VirtualDiskPath to tarfile $tmpName"
                         # Avoid storing the full path in the archive
                         $imageFileName = (Get-Item $VirtualDiskPath).Name
-                        Write-Host "Creating tar archive..."
+                        Write-Log "Creating tar archive..."
                         & $7zip a -ttar $tmpName $imageFileName
                         if ($LASTEXITCODE) {
                             if ((Test-Path $imageFileName)) {
@@ -786,30 +787,30 @@ function Compress-Image {
                         Remove-Item -Force $ImagePath
                 }
                 if ($compresionFormat -eq "gz") {
-                    Write-Host "Compressing $tmpName to gzip"
-                        $tmpPathName = (Get-Item $tmpName).Name
-                        Write-Host "Creating gzip..."
-                        & $pigz -p12 $tmpPathName
-                        if ($LASTEXITCODE) {
-                            if ((Test-Path $tmpName)) {
-                                Remove-Item -Force $tmpName
-                            }
-                            throw "pigz.exe failed while creating gzip file for: $tmpName"
+                    Write-Log "Compressing $tmpName to gzip"
+                    $tmpPathName = (Get-Item $tmpName).Name
+                    Write-Log "Creating gzip..."
+                    & $pigz -p12 $tmpPathName
+                    if ($LASTEXITCODE) {
+                        if ((Test-Path $tmpName)) {
+                            Remove-Item -Force $tmpName
                         }
+                        throw "pigz.exe failed while creating gzip file for: $tmpName"
+                    }
                     $tmpName = ($tmpName + ".gz")
                 }
                 if ($compresionFormat -eq "zip") {
-                    Write-Host "Archiving $VirtualDiskPath to zip $tmpName"
-                        # Avoid storing the full path in the archive
-                        Write-Host "Creating zip archive..."
-                        $zipName = $tmpName + ".zip"
-                        & $7zip a -t7z $zipName $tmpName
-                        if ($LASTEXITCODE) {
-                            if ((Test-Path $tmpName)) {
-                                Remove-Item -Force $tmpName
-                            }
-                            throw "7za.exe failed while creating tar file for image: $tmpName"
+                    Write-Log "Archiving $VirtualDiskPath to zip $tmpName"
+                    # Avoid storing the full path in the archive
+                    Write-Log "Creating zip archive..."
+                    $zipName = $tmpName + ".zip"
+                    & $7zip a -t7z $zipName $tmpName
+                    if ($LASTEXITCODE) {
+                        if ((Test-Path $tmpName)) {
+                            Remove-Item -Force $tmpName
                         }
+                        throw "7za.exe failed while creating tar file for image: $tmpName"
+                    }
                     Remove-Item -Force $tmpName
                 }
             } finally {
@@ -823,8 +824,8 @@ function Compress-Image {
     if ($ZipPassword) {
         $zipPath = $tmpName + ".zip"
         $7zip = Get-7zipPath
-        Write-Host "Creating protected zip..."
-        Write-Host "The zip password is: $ZipPassword"
+        Write-Log "Creating protected zip..."
+        Write-Log "The zip password is: $ZipPassword"
         Start-Executable -Command @("$7zip", "a", "-tzip", "$zipPath", `
                                     "$tmpName", "-p$ZipPassword", "-mx1")
         Remove-Item -Force $tmpName
@@ -886,11 +887,11 @@ function Resize-VHDImage {
         [parameter(Mandatory=$false)]
         [Uint64]$FreeSpace=500MB
     )
-    Write-Host "Shrinking VHD to minimum size"
+    Write-Log "Shrinking VHD to minimum size"
 
     $vhdSize = (Get-VHD -Path $VirtualDiskPath).Size
     $vhdSizeGB = $vhdSize/1GB
-    Write-Host "Initial VHD size is: $vhdSizeGB GB"
+    Write-Log "Initial VHD size is: $vhdSizeGB GB"
 
     $Drive = (Mount-VHD -Path $VirtualDiskPath -Passthru | Get-Disk | Get-Partition | Get-Volume).DriveLetter
     try
@@ -900,18 +901,18 @@ function Resize-VHDImage {
         $partitionInfo = Get-Partition -DriveLetter $Drive
         $MinSize = (Get-PartitionSupportedSize -DriveLetter $Drive).SizeMin
         $CurrSize = ((Get-Partition -DriveLetter $Drive).Size/1GB)
-        Write-Host "Current partition size: $CurrSize GB"
+        Write-Log "Current partition size: $CurrSize GB"
         # Leave free space for making sure Sysprep finishes successfuly
         $newSizeGB = [int](($MinSize + $FreeSpace)/1GB) + 1
         $NewSize = $newSizeGB*1GB
-        Write-Host "New partition size: $newSizeGB GB"
+        Write-Log "New partition size: $newSizeGB GB"
 
         if ($NewSize -gt $MinSize) {
             $global:i = 0
             $step = 100MB
             Execute-Retry {
                 $sizeIncreased = ($NewSize + ($step * $global:i))
-                Write-Host "Size increased: $sizeIncreased"
+                Write-Log "Size increased: $sizeIncreased"
                 $global:i = $global:i + 1
                 Resize-Partition -DriveLetter $Drive -Size $sizeIncreased -ErrorAction "Stop"
             }
@@ -927,7 +928,7 @@ function Resize-VHDImage {
         Resize-VHD $VirtualDiskPath -ToMinimumSize
     }
     $FinalDiskSize = ((Get-VHD -Path $VirtualDiskPath).Size/1GB)
-    Write-Host "Final disk size: $FinalDiskSize GB"
+    Write-Log "Final disk size: $FinalDiskSize GB"
 }
 
 function Create-VirtualSwitch {
@@ -969,7 +970,7 @@ function Wait-ForVMShutdown {
         [Parameter(Mandatory=$true)]
         [string]$Name
     )
-    Write-Output "Waiting for $Name to finish sysprep"
+    Write-Log "Waiting for $Name to finish sysprep"
     $isOff = (Get-VM -Name $Name).State -eq "Off"
     while ($isOff -eq $false) {
         Start-Sleep 1
@@ -993,11 +994,11 @@ function Run-Sysprep {
         [string]$Generation = "1"
     )
 
-    Write-Output "Creating VM $Name attached to $VMSwitch"
+    Write-Log "Creating VM $Name attached to $VMSwitch"
     New-VM -Name $Name -MemoryStartupBytes $Memory -SwitchName $VMSwitch `
         -VhdPath $VhdPath -Generation $Generation
     Set-VMProcessor -VMname $Name -count $CpuCores
-    Write-Output "Starting $Name"
+    Write-Log "Starting $Name"
     Start-VM $Name
     Start-Sleep 5
     Wait-ForVMShutdown $Name
@@ -1048,31 +1049,41 @@ function Set-WindowsWallpaper {
         [Parameter(Mandatory=$true)][PathShouldExist()]
         [string]$winDrive,
         [Parameter(Mandatory=$false)]
-        [string]$WallpaperPath
+        [string]$WallpaperPath,
+		[switch]$SkipWallpaper=$false
     )
 
+	$windowsLocalGPOPath = Join-Path $winDrive "\Windows\System32\GroupPolicy"
+    if (!(Test-Path $windowsLocalGPOPath)) {
+       New-Item -Type Directory $windowsLocalGPOPath | Out-Null
+    }
+	$wallpaperGPOPath = Join-Path $localResourcesDir "GPO\wallpaper"
+	if($SkipWallpaper) {
+		$wallpaperGPOPath = Join-Path $localResourcesDir "GPO\nowallpaper"
+		Copy-Item -Recurse -Force "$wallpaperGPOPath\*" "$windowsLocalGPOPath\"
+		Write-Log "Setting wallpaper to none"
+		return
+	}
+	
     Write-Log "Set Wallpaper: $WallpaperPath..."
     if (!$WallpaperPath -or !(@('.jpg', '.jpeg') -contains `
             (Get-Item $windowsImageConfig.wallpaper_path -ErrorAction SilentlyContinue).Extension)) {
         $WallpaperPath = Join-Path $localResourcesDir "Wallpaper.jpg"
     }
     if (!(Test-Path $WallpaperPath)) {
-        throw "Walpaper path ``$WallpaperPath`` does not exist."
+        # Should not error the entire thing because of a wallpaper
+        Write-Log "Walpaper path ``$WallpaperPath`` does not exist."
+        return
     }
     $wallpaperDestinationFolder = Join-Path $winDrive "\Windows\web\Wallpaper\Cloud"
     if (!(Test-Path $wallpaperDestinationFolder)) {
        New-Item -Type Directory $wallpaperDestinationFolder | Out-Null
     }
     Copy-Item -Force $WallpaperPath "$wallpaperDestinationFolder\Wallpaper.jpg"
-    Write-Host "Wallpaper copied to the image."
+    Write-Log "Wallpaper copied to the image."
 
-    $wallpaperGPOPath = Join-Path $localResourcesDir "GPO"
-    $windowsLocalGPOPath = Join-Path $winDrive "\Windows\System32\GroupPolicy"
-    if (!(Test-Path $windowsLocalGPOPath)) {
-       New-Item -Type Directory $windowsLocalGPOPath | Out-Null
-    }
     Copy-Item -Recurse -Force "$wallpaperGPOPath\*" "$windowsLocalGPOPath\"
-    Write-Host "Wallpaper GPO copied to the image."
+    Write-Log "Wallpaper GPO copied to the image."
 
     # Note(avladu) if the image already has been booted and has a wallpaper, the
     # GPO will not be applied for the users who have already logged in.
@@ -1083,9 +1094,20 @@ function Set-WindowsWallpaper {
         $wallpaperPathFullName = (Get-Item $cachedWallpaperPath).FullName
         Remove-Item -Recurse -Force ((Get-Item $cachedWallpaperPath).DirectoryName + "\*")
         Copy-Item -Force $WallpaperPath $wallpaperPathFullName
-        Write-Host "Cached wallpaper for user Administrator has been replaced."
+        Write-Log "Cached wallpaper for user Administrator has been replaced."
     }
     Write-Log "Wallpaper was set."
+}
+
+function Get-TotalLogicalProcessors {
+    PROCESS {
+        $count = 0
+        $cpus = Get-WmiObject Win32_Processor
+        foreach ($cpu in $cpus) {
+            $count += $cpu.NumberOfLogicalProcessors
+        }
+        return $count
+    }
 }
 
 function New-WindowsOnlineImage {
@@ -1117,7 +1139,7 @@ function New-WindowsOnlineImage {
         }
     }
 
-    Write-Host ("Windows online image generation started at: {0}" -f @(Get-Date))
+    Write-Log ("Windows online image generation started at: {0}" -f @(Get-Date))
     Is-Administrator
     if (!$windowsImageConfig.run_sysprep -and !$windowsImageConfig.force) {
         throw "You chose not to run sysprep.
@@ -1131,21 +1153,19 @@ function New-WindowsOnlineImage {
         if (!$switch) {
             throw "Selected vmswitch {0} does not exist" -f $windowsImageConfig.external_switch
         }
-        if ($switch.SwitchType -ne "External" -and !$windowsImageConfig.force) {
-            throw "Selected switch {0}} is not an external
-                switch. If you really want to continue use the `force = true` flag." `
-                -f $windowsImageConfig.external_switch
+        if ($switch.SwitchType -ne "External") {
+            Write-Warning ("Selected vmswitch is not external. Updates may not be downloadable" -f $windowsImageConfig.external_switch)
         }
     }
-    if ($windowsImageConfig.cpu_count -gt `
-        (Get-WmiObject Win32_Processor).NumberOfLogicalProcessors) {
+
+    if ([int]$windowsImageConfig.cpu_count -gt [int](Get-TotalLogicalProcessors)) {
         throw "CpuCores larger then available (logical) CPU cores."
     }
 
     if (Test-Path $windowsImageConfig.image_path) {
-        Write-Host "Found already existing image file. Removing it..." -ForegroundColor Yellow
+        Write-Log "Found already existing image file. Removing it..." -ForegroundColor Yellow
         Remove-Item -Force $windowsImageConfig.image_path
-        Write-Host "Already existent image file has been removed." -ForegroundColor Yellow
+        Write-Log "Already existent image file has been removed." -ForegroundColor Yellow
     }
 
     try {
@@ -1182,21 +1202,21 @@ function New-WindowsOnlineImage {
 
         if ($windowsImageConfig.image_type -eq "MAAS") {
             $uncompressedImagePath = $barePath + ".img"
-            Write-Host "Converting VHD to RAW"
+            Write-Log "Converting VHD to RAW"
             Convert-VirtualDisk $virtualDiskPath $uncompressedImagePath "raw"
             Remove-Item -Force $virtualDiskPath
         }
 
         if ($windowsImageConfig.image_type -ceq "VMware") {
             $uncompressedImagePath = $barePath + ".vmdk"
-            Write-Host "Converting VHD to VMDK"
+            Write-Log "Converting VHD to VMDK"
             Convert-VirtualDisk $virtualDiskPath $uncompressedImagePath "vmdk"
             Remove-Item -Force $virtualDiskPath
         }
 
         if ($windowsImageConfig.image_type -eq "KVM") {
             $uncompressedImagePath = $barePath + ".qcow2"
-            Write-Host "Converting VHD to Qcow2"
+            Write-Log "Converting VHD to Qcow2"
             Convert-VirtualDisk $virtualDiskPath $uncompressedImagePath "qcow2" $windowsImageConfig.compress_qcow2
             Remove-Item -Force $virtualDiskPath
         }
@@ -1211,7 +1231,7 @@ function New-WindowsOnlineImage {
         }
         Throw
     }
-    Write-Host ("Windows online image generation finished at: {0}" -f @((Get-Date)))
+    Write-Log ("Windows online image generation finished at: {0}" -f @((Get-Date)))
 }
 
 function New-WindowsCloudImage {
@@ -1236,7 +1256,7 @@ function New-WindowsCloudImage {
         [parameter(Mandatory=$true, ValueFromPipeline=$true)]
         [string]$ConfigFilePath
     )
-    Write-Host ("Image generation started at: {0}" -f @(Get-Date))
+    Write-Log ("Image generation started at: {0}" -f @(Get-Date))
 
     $windowsImageConfig = Get-WindowsImageConfig -ConfigFilePath $ConfigFilePath
     Validate-WindowsImageConfig $windowsImageConfig
@@ -1250,9 +1270,9 @@ function New-WindowsCloudImage {
     Check-DismVersionForImage $image
 
     if (Test-Path $windowsImageConfig.image_path) {
-        Write-Host "Found already existing image file. Removing it..." -ForegroundColor Yellow
+        Write-Log "Found already existing image file. Removing it..." -ForegroundColor Yellow
         Remove-Item -Force $windowsImageConfig.image_path
-        Write-Host "Already existent image file has been removed." -ForegroundColor Yellow
+        Write-Log "Already existent image file has been removed." -ForegroundColor Yellow
     }
 
     $vhdPath = "{0}.vhdx" -f (Get-PathWithoutExtension $windowsImageConfig.image_path)
@@ -1280,7 +1300,7 @@ function New-WindowsCloudImage {
         Copy-CustomResources -ResourcesDir $resourcesDir -CustomResources $windowsImageConfig.custom_resources_path `
                              -CustomScripts $windowsImageConfig.custom_scripts_path
         Copy-Item $ConfigFilePath "$resourcesDir\config.ini"
-        Set-WindowsWallpaper $winImagePath $windowsImageConfig.wallpaper_path
+        Set-WindowsWallpaper -winDrive $winImagePath -WallpaperPath $windowsImageConfig.wallpaper_path -SkipWallpaper:$windowsImageConfig.skip_wallpaper
         Download-CloudbaseInit $resourcesDir ([string]$image.ImageArchitecture) -BetaRelease:$windowsImageConfig.beta_release `
                                $windowsImageConfig.msi_path
         Apply-Image $winImagePath $windowsImageConfig.wim_file_path $image.ImageIndex
@@ -1317,7 +1337,7 @@ function New-WindowsCloudImage {
         New-ProtectedZip -ZipPassword $windowsImageConfig.zip_password `
             -virtualDiskPath $windowsImageConfig.image_path
     }
-    Write-Host ("Image generation finished at: {0}" -f @(Get-Date))
+    Write-Log ("Image generation finished at: {0}" -f @(Get-Date))
 }
 
 function New-WindowsFromGoldenImage {
@@ -1345,7 +1365,7 @@ function New-WindowsFromGoldenImage {
     )
 
     $windowsImageConfig = Get-WindowsImageConfig -ConfigFilePath $ConfigFilePath
-    Write-Host ("Windows online image generation started at: {0}" -f @(Get-Date))
+    Write-Log ("Windows online image generation started at: {0}" -f @(Get-Date))
     Is-Administrator
     if (!$windowsImageConfig.run_sysprep -and !$windowsImageConfig.force) {
         throw "You chose not to run sysprep.
@@ -1365,8 +1385,7 @@ function New-WindowsFromGoldenImage {
                 -f $windowsImageConfig.external_switch
         }
     }
-    if ($windowsImageConfig.cpu_count -gt `
-        (Get-WmiObject Win32_Processor).NumberOfLogicalProcessors) {
+    if ([int]$windowsImageConfig.cpu_count -gt [int](Get-TotalLogicalProcessors)) {
         throw "CpuCores larger than available (logical) CPU cores."
     }
 
@@ -1403,7 +1422,7 @@ function New-WindowsFromGoldenImage {
         Copy-CustomResources -ResourcesDir $resourcesDir -CustomResources $windowsImageConfig.custom_resources_path `
                              -CustomScripts $windowsImageConfig.custom_scripts_path
         Copy-Item $ConfigFilePath "$resourcesDir\config.ini"
-        Set-WindowsWallpaper $driveLetterGold $windowsImageConfig.wallpaper_path
+        Set-WindowsWallpaper -winDrive $driveLetterGold -WallpaperPath $windowsImageConfig.wallpaper_path -SkipWallpaper:$windowsImageConfig.skip_wallpaper
         Download-CloudbaseInit $resourcesDir $imageInfo.imageArchitecture -BetaRelease:$windowsImageConfig.beta_release `
                                $windowsImageConfig.msi_path
         Dismount-VHD -Path $windowsImageConfig.gold_image_path
@@ -1426,7 +1445,7 @@ function New-WindowsFromGoldenImage {
         
         if ($windowsImageConfig.image_type -eq "MAAS") {
             $uncompressedImagePath = $barePath + ".img"
-            Write-Output "Converting VHD to RAW"
+            Write-Log "Converting VHD to RAW"
             Convert-VirtualDisk $windowsImageConfig.gold_image_path $uncompressedImagePath "RAW"
             Remove-Item -Force $windowsImageConfig.gold_image_path
             if (!($windowsImageConfig.compression_format -match ".tar.gz")) {
@@ -1435,7 +1454,7 @@ function New-WindowsFromGoldenImage {
         }
         if ($windowsImageConfig.image_type -eq "KVM") {
             $uncompressedImagePath = $barePath + ".qcow2"
-            Write-Output "Converting VHD to QCow2"
+            Write-Log "Converting VHD to QCow2"
             Convert-VirtualDisk $windowsImageConfig.gold_image_path $uncompressedImagePath "qcow2"
             Remove-Item -Force $windowsImageConfig.gold_image_path
         }
@@ -1444,11 +1463,11 @@ function New-WindowsFromGoldenImage {
                 $windowsImageConfig.compression_format $windowsImageConfig.zip_password
         }
     } catch {
-      Write-Host $_
+      Write-Log $_
       try {
         Get-VHD $windowsImageConfig.gold_image_path | Dismount-VHD
       } catch {
-        Write-Host $_
+        Write-Log $_
       }
     }
 }
