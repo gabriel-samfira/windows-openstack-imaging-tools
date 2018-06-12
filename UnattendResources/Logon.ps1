@@ -139,8 +139,12 @@ function Install-WindowsUpdates {
             #Note (cgalan): In case the update fails, we need to reboot the instance in order for the updates
             # to be retrieved on a changed system state and be applied correctly.
             Install-WindowsUpdate -Updates $updates[0..$maximumUpdates]
+         } catch {
+            Write-Warning ("Got error while installing updates: {0}. Will reboot" -f $_)
+            Start-Sleep 5
          } finally {
-            Restart-Computer -Force
+            #Restart-Computer -Force
+            Restart-Computer
             exit 0
          }
     }
